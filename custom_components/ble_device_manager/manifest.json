@@ -1,7 +1,7 @@
 {
   "domain": "ble_device_manager",
   "name": "BLE Device Manager",
-  "documentation": "https://github.com/tuo-username/ble_device_manager",
+  "documentation": "https://github.com/Martebok/ble_device_manager",
   "dependencies": ["bluetooth"],
   "codeowners": [],
   "requirements": ["bleak>=0.22.0"],

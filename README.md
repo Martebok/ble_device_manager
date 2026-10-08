@@ -2,6 +2,8 @@
 
 Custom Home Assistant integration for managing BLE devices with passive presence detection and smart battery polling.
 
+**Repository:** https://github.com/Martebok/ble_device_manager
+
 ## Features
 
 - **Passive presence detection** - Uses Bluetooth advertising packets (RSSI) to detect device presence without connecting
