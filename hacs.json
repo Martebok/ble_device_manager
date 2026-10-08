@@ -1,0 +1,14 @@
+{
+  "name": "BLE Device Manager",
+  "description": "Custom Home Assistant integration for managing BLE devices with passive presence detection and smart battery polling",
+  "version": "1.0.0",
+  "author": "tuo-username",
+  "repository": "https://github.com/tuo-username/ble_device_manager",
+  "homepage": "https://github.com/tuo-username/ble_device_manager",
+  "documentation": "https://github.com/tuo-username/ble_device_manager",
+  "issues": "https://github.com/tuo-username/ble_device_manager/issues",
+  "dependencies": ["bluetooth"],
+  "requirements": ["bleak>=0.22.0"],
+  "iot_class": "local_polling",
+  "config_flow": true
+}

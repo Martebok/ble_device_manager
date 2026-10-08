@@ -1,0 +1,11 @@
+{
+  "domain": "ble_device_manager",
+  "name": "BLE Device Manager",
+  "documentation": "https://github.com/tuo-username/ble_device_manager",
+  "dependencies": ["bluetooth"],
+  "codeowners": [],
+  "requirements": ["bleak>=0.22.0"],
+  "iot_class": "local_polling",
+  "version": "1.0.0",
+  "config_flow": true
+}
