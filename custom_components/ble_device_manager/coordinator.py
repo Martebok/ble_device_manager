@@ -1,61 +1,89 @@
+import asyncio
 import logging
 from datetime import timedelta
+
+from bleak import BleakClient, BleakError
+from homeassistant.components.bluetooth import (
+    async_discovered_service_info,
+    async_last_service_info,
+)
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from homeassistant.components.bluetooth import async_discovered_service_info, async_ble_device_from_address
+
+from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+# Caratteristica GATT standard per livello batteria (%)
+BATTERY_CHARACTERISTIC = "00002a19-0000-1000-8000-00805f9b34fb"
+
+
 class BLEGlobalCoordinator(DataUpdateCoordinator):
+    """Coordinator condiviso: traccia tutti i dispositivi BLE registrati."""
+
     def __init__(self, hass):
         self.hass = hass
-        # Liste in memoria per tracciare cosa è monitorato e cosa è ignorato
-        self.monitored = {}  # Esempio: {"AA:BB:CC:...": {"name": "P47 Rosso", "threshold": 30}}
-        self.ignored = set() # Esempio: {"11:22:33:..."}
-        
+        # address -> {"name", "threshold", "present", "battery", "last_seen"}
+        self.devices = {}
+        self._lock = asyncio.Lock()
+
         super().__init__(
             hass,
             _LOGGER,
-            name="BLE Global Radar",
-            update_interval=timedelta(seconds=60), # Scansione radar ogni minuto
+            name=DOMAIN,
+            update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
 
-    async def _async_update_data(self):
-        # 1. Rileva tutti i dispositivi attualmente nell'etere
-        discovered = async_discovered_service_info(self.hass)
-        devices_data = {}
-
-        for d in discovered:
-            address = d.address
-            name = d.name or "Sconosciuto"
-            rssi = d.rssi
-
-            if address in self.ignored:
-                status = "ignored"
-            elif address in self.monitored:
-                status = "monitored"
-                # Qui esegue il controllo GATT con timer 5 min se libero
-            else:
-                status = "discovering" # Nuovo dispositivo trovato nell'etere
-
-            devices_data[address] = {
+    async def async_register_device(self, address, name, threshold):
+        """Aggiunge un dispositivo al coordinator (chiamato da async_setup_entry)."""
+        async with self._lock:
+            self.devices[address] = {
                 "name": name,
-                "address": address,
-                "rssi": rssi,
-                "status": status,
-                "present": True,
-                "battery": None # Sarà aggiornato via GATT se monitorato
+                "threshold": threshold,
+                "present": False,
+                "battery": None,
+                "last_seen": None,
             }
+        self.async_set_updated_data(self.devices)
 
-        return devices_data
+    async def async_unregister_device(self, address):
+        """Rimuove un dispositivo dal coordinator (chiamato da async_unload_entry)."""
+        async with self._lock:
+            self.devices.pop(address, None)
+        self.async_set_updated_data(self.devices)
 
-    def add_monitored(self, address, name, threshold=30):
-        if address in self.ignored:
-            self.ignored.remove(address)
-        self.monitored[address] = {"name": name, "threshold": threshold}
-        self.async_set_updated_data(self.data)
+    async def _async_update_data(self):
+        """Ogni ciclo: controlla presenza e legge la batteria per i dispositivi presenti."""
+        discovered = async_discovered_service_info(self.hass)
+        discovered_addresses = {d.address for d in discovered}
 
-    def add_ignored(self, address):
-        if address in self.monitored:
-            del self.monitored[address]
-        self.ignored.add(address)
-        self.async_set_updated_data(self.data)
+        for address, device in list(self.devices.items()):
+            service_info = async_last_service_info(self.hass, address)
+            present = service_info is not None
+            device["present"] = present
+            if present:
+                device["last_seen"] = self.hass.loop.time()
+
+            if not present:
+                continue
+
+            # Il dispositivo è presente: prova a leggere la batteria.
+            # Se è già occupo da un'altra connessione (TV/phone), BleakError viene
+            # catturato silenziosamente e si riprova al ciclo successivo.
+            try:
+                async with BleakClient(
+                    address,
+                    timeout=10,
+                    pair=False,
+                ) as client:
+                    raw = await client.read_gatt_char(BATTERY_CHARACTERISTIC)
+                    if isinstance(raw, (bytes, bytearray)):
+                        device["battery"] = int.from_bytes(raw, "little")
+                    else:
+                        device["battery"] = int(raw)
+            except (BleakError, asyncio.TimeoutError) as err:
+                _LOGGER.debug(
+                    "Impossibile leggere batteria per %s (%s): %s",
+                    device["name"], address, err,
+                )
+
+        return self.devices
